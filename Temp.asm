@@ -10,7 +10,7 @@ stack segment stack
         dw 15 dup(?)
     btm dw ? 
 stack ends
-
+                                ;my little house must think it queer, to stop without a far house near.
 ;´úÂë¶Î
 code segment
         start:  mov ax,data

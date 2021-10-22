@@ -1,4 +1,4 @@
-assume cs:code,ds:data,ss:stack             ;汇编编程基本架构
+assume cs:code,ds:data,ss:stack             ;汇编编程基本架构   
 
 ;数据段
 data segment
@@ -7,8 +7,8 @@ data segment
     actlen dw 0                    ;定义实际长度
     crlf   db 0dh,0ah,'$'          ;定义回车+换行
     lfLen  db ?                    ;需要填充的空格的长度
-    stbuf  db 101,0,101 DUP(0)     ;初始数据存储的地方
-    delbuf db 101,0,101 DUP(0)     ;处理之后的数据存储的地方
+    stbuf  db 255,0,400 DUP(0)     ;初始数据存储的地方
+    delbuf db 255,0,400 DUP(0)     ;处理之后的数据存储的地方
     USD    db '$'
 data ends
 
@@ -65,7 +65,7 @@ code segment    ;一些预处理
                 cmp byte ptr ds:[si],','    ;倘若字符为,判断当前统计的有效长度，并使之与最大长度进行比较
                 je compare
                 cmp byte ptr ds:[si],'.'    ;同上
-                je compare
+                je ellipsis                             ;需要特别判断是否为省略号...
                 cmp byte ptr ds:[si],'!'    ;同上
                 je compare
                 cmp byte ptr ds:[si],'?'    ;同上
@@ -75,14 +75,24 @@ code segment    ;一些预处理
                 inc si
                 jmp judge
 
+                ;倘若第一个字符为.这就需要判断是否为...省略号的形式
+     ellipsis:  cmp byte ptr ds:[si+1],'.'      ;比较下一个字符，倘若不相等,则直接跳转到正常的处理程序
+                jnz compare                     ;下一个字符不是.就直接跳转到compare比较程序
+                add word ptr ds:[25],1          ;倘若下一个字符是.
+                inc si
+                jmp ellipsis                    ;自循环
+
+
       compare:  sub ax,ax       ;将ax、bx寄存器清空     这里对maxlen、actlen进行修改
                 sub bx,bx
-                lea ax,actlen
-                lea bx,maxlen
+                mov ax,ds:[25]
+                mov bx,ds:[23]
                 ;此时需要将si指针+1
                 inc si          ;指向终结符号的下一位
-                cmp ax,bx
-                ja  setMax
+                sub bx,ax                                                                       ;使用maxlen减去actlen
+                jb  setMax                                                                      ;高于则跳转到设置setMax
+                ;这个位置需要将存储的有效数据值清空                                               ;低于则清空重新计数
+                mov byte ptr ds:[0025],0
                 jmp judge
         
                 ;修改最大值
@@ -109,55 +119,101 @@ code segment    ;一些预处理
                 je done                     ;当扫描到终止符号的时候，跳转到done，接下来输出字符串
                 cmp byte ptr ds:[si],','    ;倘若为终结符号,将进入增量处理程序
                 je strRe
-                cmp byte ptr ds:[si],'.'    ;同上
-                je strRe
+                cmp byte ptr ds:[si],'.'    ;同上                       ;这里也需要增加处理...的代码!
+                je ellRe                                             ;针对于句号和省略号需要单独处理
                 cmp byte ptr ds:[si],'!'    ;同上
                 je strRe
                 cmp byte ptr ds:[si],'?'    ;同上
                 je strRe
-                ;倘若经过如上判断之后未出现跳转的情况
+                
+                ;增加一个末尾符号判断           -> 倘若该符号的下一个符号为终结符号，将该符号加入输出的字符串中
+                cmp byte ptr ds:[si+1],'$'      ;以上，保证最后的标点符号可以正常显示出来
+                jne flag
+                add word ptr ds:[25],1
+
+          flag: ;倘若经过如上判断之后未出现跳转的情况
                 add word ptr ds:[25],1          ;必须得在actlen上+1
                 inc si
                 jmp deal1                        ;回跳至开始位置,注意千万不要跳转到deal位置！
 
+        
+
+                   ;进入添加序列                ;此操作可以保证句号和省略号的正常输出
+     ;addpoint:  add word ptr ds:[25],1          ;自增1
+        ;        jmp ellRe
+
+                ;进入判断省略号的状态
+        ellRe:  cmp byte ptr ds:[si+1],'.'      ;比较下一个字符，倘若不相等,则直接跳转到正常的处理程序
+                jnz strRe                       ;下一个字符不是.就直接跳转到compare比较程序
+                add word ptr ds:[25],1          ;倘若下一个字符是.
+                inc si
+                jmp ellRe                       ;自循环         -> 输出的省略号为..  --> 如何使得字符串可以被正常输出?  
 
                 ;进入字符串处理序列
         strRe:  sub ax,ax       ;将ax、bx寄存器清空     
                 sub bx,bx
-                mov ax,ds:[25]
+                mov ax,ds:[25]                                  ;这里保存着字符串的正常长度，此时不包含最后一个字符串!
                 mov bx,ds:[23]
                 ;先将此时的actlen、maxlen入栈保存
                 ;push ax
                 ;push bx
+                
                 ;接下来计算需要的增量
                 sub bx,ax   ;这里将maxlen的值减去actlen的值 -> 增量的一部分
                 mov ax,bx   ;将被除数送至ax
                 mov bx,2
                 div bl      ;做除法，商位于al,余数位于ah            ->一定注意除数的位数!!!!!!!!!!!!!!!!!!!!!!!!!!
+                
                 ;接下来进行空格增量
                 sub cx,cx   ;首先将ax寄存器清空
                 mov cl,al   ;将商值作为添加的空格数量       -> 这个时候al保存这商值，暂时不要用ax寄存器
+                
                 ;倘若cl为零 -> 无需填充直接赋值
                 and cl,1111B
                 jz special              ;当计算的al为零，即商为0时，需要特殊处理
                 jmp add1                ;倘若不为0，跳转add1
+                
+                ;特殊处理跳转
       special:  mov cx,ds:[25]       ;将有效长度赋值给cx ->以字节为单位         ;跳转之前这个不能忘
                 jmp copy
                 
+                ;此循环将补充的空格添加到目标段前
         add1:   mov ds:[bp],' '                             ;是不是得考虑上来就是.的情况????????
                 inc bp
                 loop add1
                 ;接下来将字符串复制
                 mov cx,ds:[25]       ;将有效长度赋值给cx ->以字节为单位
+
+                ;此循环将原文复制到目标段
         copy:   mov bl,ds:[di]
                 inc di              ;这时使用di辅助指针进行赋值
                 mov ds:[bp],bl
                 inc bp              ;复制到bp指向的内存单元
                 loop copy
+
+                ;判断是否是!或者?               ;这样就可以使得!?直接跟在文本的后面
+                cmp byte ptr ds:[si],'!'                                  ;判断是否为 '!'
+                jne tag1
+                mov al,ds:[si]
+                mov ds:[bp],al
+                inc bp
+        
+        tag1:   cmp byte ptr ds:[si],'?'                                  ;判断是否为 '?'
+                jne tag2
+                mov al,ds:[si]
+                mov ds:[bp],al 
+                inc bp                          ;此时已经将标点符号加入，但是其有效长度并未改变actlen并不会改变,但是标点符号在文本中会被显示出来
+
+        tag2:   cmp byte ptr ds:[si+1],'$'                                                        ;判断是否为 最后一个符号
+                jne tag3
+                mov al,ds:[si]
+                mov ds:[bp],al 
+                inc bp  
+
                 ;接下来还需要判断al是否为零
-                mov cl,al
+        tag3:   mov cl,al
                 and cl,1111B
-                jz  lfd                 ;倘若为0，直接跳过填充阶段
+                jz  flag3                 ;倘若为0，直接跳过填充阶段
                 ;接下来又是填充
                 mov cl,al
         add2:   mov ds:[bp],' '
@@ -166,7 +222,25 @@ code segment    ;一些预处理
 
                 ;在处理完如上操作之后,一行诗句已经被处理完毕
                 ;此时应当添加一个换行符号!
-        lfd:    inc bp
+        ;lfd:    cmp byte ptr ds:[si+1],'$'                                ;这里需要添加判断下一个符号是否为 '$'
+        ;        jne flag3
+        ;        mov al,ds:[si]
+        ;        mov ds:[bp],al                          ;※成功将最后一个符号加入!!
+
+                ;使用如下代码添加符号的时候，是在字符串补充空格之后加入标点符号，格式很差!
+;        flag1:  cmp byte ptr ds:[si],'!'                                  ;判断是否为 '!'
+;                jne flag2
+;                mov al,ds:[si]
+;                mov ds:[bp],al                          ;将 '!'加入
+
+                
+;        flag2:  cmp byte ptr ds:[si],'?'                                  ;判断是否为 '?'
+;                jne flag3
+;                mov al,ds:[si]
+;                mov ds:[bp],al                          ;将 '?'加入
+                
+          
+        flag3:  inc bp
                 mov byte ptr ds:[bp],0dh
                 inc bp
                 mov byte ptr ds:[bp],0ah
@@ -179,9 +253,11 @@ code segment    ;一些预处理
                 mov word ptr ds:[25],0
                 jmp deal1       ;跳转回到deal1中继续处理字符串
 
-
-        done:   mov ds:[bp+1],'$'   ;在字符串最后赋值 '$'
-
+                ;最后一定将末尾字符加入
+        done:   ;mov al,ds:[si-1]                ;一定注意这个时候si指向 '$'
+                ;mov ds:[bp+1],al        ;将最后的标点符号加入其中
+                ;mov ds:[bp+2],'$'   ;在字符串最后赋值 '$'
+                mov ds:[bp+1],'$'   ;在字符串最后赋值 '$'
 
 
                 
@@ -193,7 +269,7 @@ code segment    ;一些预处理
                 int 21H
 
                 ;指向输出的数据
-                mov dx,offset delbuf            ;死活不输出正常语句!!!
+                mov dx,offset delbuf            ;死活不输出正常语句!!!  终于正常执行了,接下来将省略号加入其中
                 ;add dx,2
 
                 ;显示字符串
@@ -202,5 +278,6 @@ code segment    ;一些预处理
 
                 mov ax,4C00H
                 int 21H
+
 code ends
 end start

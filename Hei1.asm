@@ -1,4 +1,4 @@
-assume cs:code,ds:data,ss:stack             ;汇编编程基本架构                   ;暂存代码
+assume cs:code,ds:data,ss:stack             ;汇编编程基本架构   ;此时标点符号已经可以实现，但是!?位置优点偏差
 
 ;数据段
 data segment
@@ -65,7 +65,7 @@ code segment    ;一些预处理
                 cmp byte ptr ds:[si],','    ;倘若字符为,判断当前统计的有效长度，并使之与最大长度进行比较
                 je compare
                 cmp byte ptr ds:[si],'.'    ;同上
-                je compare
+                je ellipsis                             ;需要特别判断是否为省略号...
                 cmp byte ptr ds:[si],'!'    ;同上
                 je compare
                 cmp byte ptr ds:[si],'?'    ;同上
@@ -74,6 +74,14 @@ code segment    ;一些预处理
                 add word ptr ds:[25],1          ;必须得在actlen上+1
                 inc si
                 jmp judge
+
+                ;倘若第一个字符为.这就需要判断是否为...省略号的形式
+     ellipsis:  cmp byte ptr ds:[si+1],'.'      ;比较下一个字符，倘若不相等,则直接跳转到正常的处理程序
+                jnz compare                     ;下一个字符不是.就直接跳转到compare比较程序
+                add word ptr ds:[25],1          ;倘若下一个字符是.
+                inc si
+                jmp ellipsis                    ;自循环
+
 
       compare:  sub ax,ax       ;将ax、bx寄存器清空     这里对maxlen、actlen进行修改
                 sub bx,bx
@@ -109,22 +117,38 @@ code segment    ;一些预处理
                 je done                     ;当扫描到终止符号的时候，跳转到done，接下来输出字符串
                 cmp byte ptr ds:[si],','    ;倘若为终结符号,将进入增量处理程序
                 je strRe
-                cmp byte ptr ds:[si],'.'    ;同上
-                je strRe
+                cmp byte ptr ds:[si],'.'    ;同上                       ;这里也需要增加处理...的代码!
+                je ellRe                                             ;针对于句号和省略号需要单独处理
                 cmp byte ptr ds:[si],'!'    ;同上
                 je strRe
                 cmp byte ptr ds:[si],'?'    ;同上
                 je strRe
-                ;倘若经过如上判断之后未出现跳转的情况
+                ;增加一个末尾符号判断
+                cmp byte ptr ds:[si+1],'$'
+                jne flag
+                add word ptr ds:[25],1
+          flag: ;倘若经过如上判断之后未出现跳转的情况
                 add word ptr ds:[25],1          ;必须得在actlen上+1
                 inc si
                 jmp deal1                        ;回跳至开始位置,注意千万不要跳转到deal位置！
 
+        
+
+                   ;进入添加序列                ;此操作可以保证句号和省略号的正常输出
+     ;addpoint:  add word ptr ds:[25],1          ;自增1
+        ;        jmp ellRe
+
+                ;进入判断省略号的状态
+        ellRe:  cmp byte ptr ds:[si+1],'.'      ;比较下一个字符，倘若不相等,则直接跳转到正常的处理程序
+                jnz strRe                       ;下一个字符不是.就直接跳转到compare比较程序
+                add word ptr ds:[25],1          ;倘若下一个字符是.
+                inc si
+                jmp ellRe                       ;自循环         -> 输出的省略号为..  --> 如何使得字符串可以被正常输出?  
 
                 ;进入字符串处理序列
         strRe:  sub ax,ax       ;将ax、bx寄存器清空     
                 sub bx,bx
-                mov ax,ds:[25]
+                mov ax,ds:[25]                                  ;这里保存着字符串的正常长度，此时不包含最后一个字符串!
                 mov bx,ds:[23]
                 ;先将此时的actlen、maxlen入栈保存
                 ;push ax
@@ -154,6 +178,8 @@ code segment    ;一些预处理
                 mov ds:[bp],bl
                 inc bp              ;复制到bp指向的内存单元
                 loop copy
+
+                
                 ;接下来还需要判断al是否为零
                 mov cl,al
                 and cl,1111B
@@ -166,7 +192,24 @@ code segment    ;一些预处理
 
                 ;在处理完如上操作之后,一行诗句已经被处理完毕
                 ;此时应当添加一个换行符号!
-        lfd:    inc bp
+        lfd:    cmp byte ptr ds:[si+1],'$'                                ;这里需要添加判断下一个符号是否为 '$'
+                jne flag1
+                mov al,ds:[si]
+                mov ds:[bp],al                          ;※成功将最后一个符号加入!!
+
+        flag1:  cmp byte ptr ds:[si],'!'                                  ;判断是否为 '!'
+                jne flag2
+                mov al,ds:[si]
+                mov ds:[bp],al                          ;将 '!'加入
+
+                
+        flag2:  cmp byte ptr ds:[si],'?'                                  ;判断是否为 '?'
+                jne flag3
+                mov al,ds:[si]
+                mov ds:[bp],al                          ;将 '?'加入
+                
+          
+        flag3:  inc bp
                 mov byte ptr ds:[bp],0dh
                 inc bp
                 mov byte ptr ds:[bp],0ah
@@ -179,8 +222,10 @@ code segment    ;一些预处理
                 mov word ptr ds:[25],0
                 jmp deal1       ;跳转回到deal1中继续处理字符串
 
-
-        done:   mov ds:[bp+1],'$'   ;在字符串最后赋值 '$'
+                ;最后一定将末尾字符加入
+        done:   mov al,ds:[si-1]                ;一定注意这个时候si指向 '$'
+                mov ds:[bp+1],al        ;将最后的标点符号加入其中
+                mov ds:[bp+2],'$'   ;在字符串最后赋值 '$'
 
 
 
@@ -193,7 +238,7 @@ code segment    ;一些预处理
                 int 21H
 
                 ;指向输出的数据
-                mov dx,offset delbuf            ;死活不输出正常语句!!!
+                mov dx,offset delbuf            ;死活不输出正常语句!!!  终于正常执行了,接下来将省略号加入其中
                 ;add dx,2
 
                 ;显示字符串
