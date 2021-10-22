@@ -1,15 +1,24 @@
-assume cs:code,ds:data,ss:stack
+assume cs:code,ds:data,ss:stack             ;汇编编程基本架构
 
+;数据段
 data segment
 
 data ends
 
+;堆栈段
 stack segment stack
-
+        dw 15 dup(?)
+    btm dw ? 
 stack ends
 
+;代码段
 code segment
-        start:  mov ax,123FH
+        start:  mov ax,data
+                mov ds,ax
+                mov ax,stack
+                mov ss,ax
+                mov sp,offset btm
+                add sp,2
 
                 mov ax,4C00H
                 int 21H
