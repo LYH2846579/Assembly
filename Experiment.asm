@@ -204,14 +204,22 @@ code segment    ;一些预处理
                 mov ds:[bp],al 
                 inc bp                          ;此时已经将标点符号加入，但是其有效长度并未改变actlen并不会改变,但是标点符号在文本中会被显示出来
 
-        tag2:   cmp byte ptr ds:[si+1],'$'                                                        ;判断是否为 最后一个符号
+        tag2:   cmp byte ptr ds:[si-1],'.'                              ;判断是否为省略号
                 jne tag3
+                cmp byte ptr ds:[si+1],'$'                              ;判断是否为末尾,以此作为添加该位标点的依据
+                je  tag3
+                mov al,ds:[si]                          ;tag2修复了针对于省略号的不完全显示问题
+                mov ds:[bp],al
+                inc bp
+
+        tag3:   cmp byte ptr ds:[si+1],'$'                                                        ;判断是否为 最后一个符号
+                jne tag4
                 mov al,ds:[si]
                 mov ds:[bp],al 
                 inc bp  
 
                 ;接下来还需要判断al是否为零
-        tag3:   mov cl,al
+        tag4:   mov cl,al
                 and cl,1111B
                 jz  flag3                 ;倘若为0，直接跳过填充阶段
                 ;接下来又是填充
