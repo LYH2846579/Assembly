@@ -7,9 +7,10 @@ data segment
     actlen dw 0                    ;定义实际长度
     crlf   db 0dh,0ah,'$'          ;定义回车+换行
     lfLen  db ?                    ;需要填充的空格的长度
-    stbuf  db 255,0,400 DUP(0)     ;初始数据存储的地方
-    delbuf db 255,0,400 DUP(0)     ;处理之后的数据存储的地方
+    stbuf  db 255,0,256 DUP(0)     ;初始数据存储的地方                          ;仍然无法解决缓冲区溢出的问题!
+    delbuf db 255,0,256 DUP(0)     ;处理之后的数据存储的地方                    ;针对255byte的缓冲区开辟256byte的空间
     USD    db '$'
+   OUTPUT  db 'Your input is:','$'
 data ends
 
 ;堆栈段
@@ -31,8 +32,13 @@ code segment    ;一些预处理
                 lea si,stbuf            ;首先存储起来
                 lea di,delbuf
 
-                ;输出提示信息
+                ;输出提示信息:请输入用户信息
                 lea dx,INPUT
+                mov ah,09h
+                int 21H
+
+                ;输出换行符
+                lea dx,crlf
                 mov ah,09h
                 int 21H
 
@@ -228,6 +234,9 @@ code segment    ;一些预处理
                 inc bp
                 loop add2
 
+                ;针对于标点符号的处理问题，应当在第一次填充完毕之后，并将原文及标点符号复制之后
+                ;并在第二次进行空格填充之前完成针对特殊标点符号的显示(?!)及补充(...)
+
                 ;在处理完如上操作之后,一行诗句已经被处理完毕
                 ;此时应当添加一个换行符号!
         ;lfd:    cmp byte ptr ds:[si+1],'$'                                ;这里需要添加判断下一个符号是否为 '$'
@@ -267,12 +276,24 @@ code segment    ;一些预处理
                 ;mov ds:[bp+2],'$'   ;在字符串最后赋值 '$'
                 mov ds:[bp+1],'$'   ;在字符串最后赋值 '$'
 
-
-                
-
                 ;输出换行符
                 lea dx,crlf
                 ;add dx,2
+                mov ah,09h
+                int 21H
+
+                ;输出换行符
+                lea dx,crlf
+                mov ah,09h
+                int 21H
+
+                ;输出提示信息
+                lea dx,OUTPUT
+                mov ah,09H
+                int 21H
+
+                ;输出换行符
+                lea dx,crlf
                 mov ah,09h
                 int 21H
 
